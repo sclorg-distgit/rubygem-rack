@@ -1,0 +1,113 @@
+From 73315617871cb89114a2ccb0815e7964d5c44539 Mon Sep 17 00:00:00 2001
+From: John Naegle <john.naegle@goodmeasures.com>
+Date: Mon, 2 Mar 2015 14:29:53 -0600
+Subject: [PATCH] Only increment the opened_files counter for file inputs.  If
+ you have a large form with only one file, you can quickly hit the
+ MultipartPartLimitError Add test for not hitting the multipart limit
+
+---
+ lib/rack/multipart/parser.rb            |  9 +++++----
+ test/multipart/three_files_three_fields | 31 +++++++++++++++++++++++++++++++
+ test/spec_multipart.rb                  | 27 +++++++++++++++++++++++++++
+ 3 files changed, 63 insertions(+), 4 deletions(-)
+ create mode 100644 test/multipart/three_files_three_fields
+
+diff --git a/lib/rack/multipart/parser.rb b/lib/rack/multipart/parser.rb
+index e6e0353..22d38e7 100644
+--- a/lib/rack/multipart/parser.rb
++++ b/lib/rack/multipart/parser.rb
+@@ -54,14 +54,15 @@ def parse
+ 
+         opened_files = 0
+         loop do
+-          if Utils.multipart_part_limit > 0
+-            raise MultipartPartLimitError, 'Maximum file multiparts in content reached' if opened_files >= Utils.multipart_part_limit
+-            opened_files += 1
+-          end
+ 
+           head, filename, content_type, name, body =
+             get_current_head_and_filename_and_content_type_and_name_and_body
+ 
++          if Utils.multipart_part_limit > 0
++            opened_files += 1 if filename
++            raise MultipartPartLimitError, 'Maximum file multiparts in content reached' if opened_files >= Utils.multipart_part_limit
++          end
++
+           # Save the rest.
+           if i = @buf.index(rx)
+             body << @buf.slice!(0, i)
+diff --git a/test/multipart/three_files_three_fields b/test/multipart/three_files_three_fields
+new file mode 100644
+index 0000000..40d88b5
+--- /dev/null
++++ b/test/multipart/three_files_three_fields
+@@ -0,0 +1,31 @@
++--AaB03x
++content-disposition: form-data; name="reply"
++
++yes
++--AaB03x
++content-disposition: form-data; name="to"
++
++people
++--AaB03x
++content-disposition: form-data; name="from"
++
++others
++--AaB03x
++content-disposition: form-data; name="fileupload1"; filename="file1.jpg"
++Content-Type: image/jpeg
++Content-Transfer-Encoding: base64
++
++/9j/4AAQSkZJRgABAQAAAQABAAD//gA+Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcg
++--AaB03x
++content-disposition: form-data; name="fileupload2"; filename="file2.jpg"
++Content-Type: image/jpeg
++Content-Transfer-Encoding: base64
++
++/9j/4AAQSkZJRgABAQAAAQABAAD//gA+Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcg
++--AaB03x
++content-disposition: form-data; name="fileupload3"; filename="file3.jpg"
++Content-Type: image/jpeg
++Content-Transfer-Encoding: base64
++
++/9j/4AAQSkZJRgABAQAAAQABAAD//gA+Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcg
++--AaB03x--
+diff --git a/test/spec_multipart.rb b/test/spec_multipart.rb
+index 327c6a2..74578d7 100644
+--- a/test/spec_multipart.rb
++++ b/test/spec_multipart.rb
+@@ -476,6 +476,33 @@ def rd.length
+     end
+   end
+ 
++ should "not reach a multi-part limit" do
++    begin
++      previous_limit = Rack::Utils.multipart_part_limit
++      Rack::Utils.multipart_part_limit = 4
++
++      env = Rack::MockRequest.env_for '/', multipart_fixture(:three_files_three_fields)
++      params = Rack::Multipart.parse_multipart(env)
++      params['reply'].should.equal 'yes'
++      params['to'].should.equal 'people'
++      params['from'].should.equal 'others'
++    ensure
++      Rack::Utils.multipart_part_limit = previous_limit
++    end
++  end
++
++  should "reach a multipart limit" do
++    begin
++      previous_limit = Rack::Utils.multipart_part_limit
++      Rack::Utils.multipart_part_limit = 3
++
++      env = Rack::MockRequest.env_for '/', multipart_fixture(:three_files_three_fields)
++      lambda { Rack::Multipart.parse_multipart(env) }.should.raise(Rack::Multipart::MultipartPartLimitError)
++    ensure
++      Rack::Utils.multipart_part_limit = previous_limit
++    end
++  end
++
+   should "return nil if no UploadedFiles were used" do
+     data = Rack::Multipart.build_multipart("people" => [{"submit-name" => "Larry", "files" => "contents"}])
+     data.should.equal nil

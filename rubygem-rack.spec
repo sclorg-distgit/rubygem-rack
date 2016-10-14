@@ -8,13 +8,14 @@ Summary:        Common API for connecting web frameworks, web servers and layers
 # Introduce Epoch (related to bug 552972)
 Epoch:          1
 Version:        1.6.2
-Release:        2%{?dist}
+Release:        3%{?dist}
 Group:          Development/Languages
 # lib/rack/backports/uri/* are taken from Ruby which is (Ruby or BSD)
 # lib/rack/show{status,exceptions}.rb contains snippets from Django under BSD license.
 License:        MIT and (Ruby or BSD) and BSD
 URL:            http://rack.github.io/
 Source0:        https://rubygems.org/gems/%{gem_name}-%{version}.gem
+Patch0:         rack-1.6.2-multipart-limit-form-fields.patch
 Requires:       %{?scl_prefix_ruby}ruby(rubygems)
 Requires:       %{?scl_prefix_ruby}ruby(release)
 BuildRequires:  %{?scl_prefix_ruby}ruby
@@ -45,6 +46,10 @@ Documentation for %{pkg_name}
 %{?scl:scl enable %{scl} - << \EOF}
 %gem_install -n %{SOURCE0}
 %{?scl:EOF}
+
+pushd .%{gem_instdir}
+%patch0 -p1
+popd
 
 %build
 
@@ -99,6 +104,9 @@ popd
 %doc %{gem_instdir}/contrib
 
 %changelog
+* Fri Oct 14 2016 Dominic Cleal <dominic@cleal.org> 1.6.2-3
+- Fix open file limit error from incorrect multipart counting (#814)
+
 * Mon Dec 14 2015 Dominic Cleal <dcleal@redhat.com> 1.6.2-2
 - Replace %%license for EL6 compatibility
 
